@@ -1,0 +1,4 @@
+# 打包依赖（仅做 exe / .app 时需要）
+# 安装： pip install -r requirements-build.txt
+
+PyInstaller>=6.0

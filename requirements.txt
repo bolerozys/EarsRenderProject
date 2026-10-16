@@ -1,0 +1,7 @@
+# PDF 发票转图片 —— 运行时依赖（Windows / macOS 通用）
+# 安装： pip install -r requirements.txt
+# 注意：本文件必须是纯粹的 pip 需求清单，不能用三引号字符串当说明。
+
+PyMuPDF>=1.24
+Pillow>=10.0
+tkinterdnd2>=0.4.2
