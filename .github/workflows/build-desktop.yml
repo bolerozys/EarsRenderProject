@@ -1,0 +1,112 @@
+# ============================================================================
+#  在云端（GitHub Actions）自动构建 macOS / Windows 客户端
+#
+#  不用自己的 Mac 也能拿到可直接运行的 Mac 客户端：
+#    1. 把这个项目推到 GitHub 仓库
+#    2. 打开仓库页面 -> Actions -> 左侧选「构建桌面客户端」
+#    3. 点「Run workflow」-> 选 all（默认）
+#    4. 构建完在该次运行的页面底部 Artifacts 里下载：
+#         PDF发票转图片-macOS-arm64.zip     Apple Silicon（M 系列）Mac
+#         PDF发票转图片-macOS-x86_64.zip    Intel Mac
+#         PDF发票转图片-Windows.zip          Windows
+#    5. 解压后把 .app 拖进「应用程序」；首次打开若提示未验证，右键 -> 打开
+#
+#  说明：macOS 产物是 .app 目录，必须先压缩再上传，所以这里用 ditto 打成 zip。
+# ============================================================================
+name: 构建桌面客户端
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 构建哪些平台
+        required: true
+        default: all
+        type: choice
+        options: [all, macos, windows]
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: PDF发票转图片
+
+jobs:
+  macos:
+    name: macOS (${{ matrix.arch }})
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || inputs.targets == 'macos' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14      # Apple Silicon
+            arch: arm64
+          - runner: macos-13      # Intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装带 Tk 的 Python
+        run: |
+          brew install python@3.12 python-tk@3.12
+          PY="$(brew --prefix)/opt/python@3.12/bin/python3.12"
+          "$PY" -c "import tkinter; print('tkinter OK', tkinter.TkVersion)"
+          echo "PDF2IMG_PYTHON=$PY" >> "$GITHUB_ENV"
+
+      - name: 运行核心测试
+        run: '"$PDF2IMG_PYTHON" -m unittest discover -s tests -p "test_core.py" -v'
+
+      - name: 打包 .app
+        env:
+          PDF2IMG_TARGET_ARCH: ${{ matrix.arch }}
+        run: bash packaging/build_macos.sh --no-open
+
+      - name: 自检产物
+        run: |
+          ./dist/pdf2img --selftest --selftest-report selftest.txt
+          cat selftest.txt
+
+      - name: 压缩 .app
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent "$APP_NAME.app" "$APP_NAME-macOS-${{ matrix.arch }}.zip"
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PDF发票转图片-macOS-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || inputs.targets == 'windows' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 运行测试
+        run: python -m unittest discover -s tests -v
+
+      - name: 打包 exe
+        run: python -m PyInstaller --noconfirm --clean packaging/pdf2image.spec
+
+      - name: 自检产物
+        run: |
+          dist\pdf2img.exe --selftest --selftest-report selftest.txt
+          type selftest.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PDF发票转图片-Windows
+          path: |
+            dist/*.exe
+          if-no-files-found: error
